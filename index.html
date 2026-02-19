@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDA Wear Trend Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="./data.js"></script>
+  <style>
+/* ============================================================
+   1. Reset & Light Variables
+============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:       #eef1f6;
+  --surf:     #ffffff;
+  --card:     #ffffff;
+  --hover:    #f0f3f8;
+  --border:   #d8dde6;
+  --blue:     #1f6feb;
+  --cyan:     #0891b2;
+  --green:    #16a34a;
+  --orange:   #ea580c;
+  --red:      #dc2626;
+  --purple:   #7c3aed;
+  --yellow:   #ca8a04;
+  --brown:    #9a3412;
+  --t1:       #1c2333;
+  --t2:       #4b5563;
+  --t3:       #9ca3af;
+  --sidebar-w:260px;
+  --cylbar-w: 155px;
+  --topbar-h:  58px;
+  --shadow: 0 1px 4px rgba(0,0,0,.08), 0 0 1px rgba(0,0,0,.05);
+}
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--t1);
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+/* ============================================================
+   2. Top Bar
+============================================================ */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+  height: var(--topbar-h);
+  background: var(--surf);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px;
+}
+.topbar-toggle {
+  width: 32px; height: 32px;
+  background: var(--hover); border: 1px solid var(--border);
+  border-radius: 7px; cursor: pointer;
+  display: grid; place-items: center; font-size: 15px;
+  transition: all .2s; flex-shrink: 0; color: var(--t2);
+}
+.topbar-toggle:hover { background: #e2e8f0; border-color: var(--blue); color: var(--blue); }
+.topbar-logo {
+  width: 32px; height: 32px;
+  background: linear-gradient(135deg, var(--blue), var(--cyan));
+  border-radius: 8px; display: grid; place-items: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.topbar-title {
+  font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700;
+  color: var(--blue);
+}
+.topbar-sub { font-size: 0.62rem; color: var(--t3); margin-top: 1px; }
+.topbar-vessel {
+  margin-left: auto;
+  background: rgba(31,111,235,.1);
+  border: 1px solid rgba(31,111,235,.25);
+  border-radius: 7px; padding: 3px 12px;
+  font-size: 0.75rem; font-weight: 600; color: var(--blue);
+}
+.topbar-vessel.hidden { display: none; }
+
+/* ============================================================
+   3. Vessel Sidebar (collapsible)
+============================================================ */
+.vessel-sidebar {
+  position: fixed;
+  top: var(--topbar-h); left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--surf);
+  border-right: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  display: flex; flex-direction: column;
+  z-index: 150;
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.vessel-sidebar.collapsed { transform: translateX(calc(-1 * var(--sidebar-w))); }
+
+.vs-search-wrap {
+  padding: 12px 10px 4px; position: relative; flex-shrink: 0;
+}
+.vs-search-icon {
+  position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
+  color: var(--t3); pointer-events: none; font-size: 0.78rem;
+}
+#vessel-search {
+  width: 100%;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 7px; padding: 7px 10px 7px 28px;
+  color: var(--t1); font-size: 0.79rem; font-family: 'Inter', sans-serif;
+  outline: none; transition: border-color .2s;
+}
+#vessel-search:focus { border-color: var(--blue); background: var(--surf); }
+#vessel-search::placeholder { color: var(--t3); }
+#vessel-count { font-size: 0.6rem; color: var(--t3); padding: 2px 13px 4px; }
+.vessel-list { flex: 1; overflow-y: auto; padding: 0 7px 12px; }
+.vessel-card {
+  border-radius: 8px; border: 1px solid transparent;
+  cursor: pointer; padding: 8px 10px; margin: 2px 0;
+  transition: all .15s;
+}
+.vessel-card:hover { background: var(--hover); border-color: var(--border); }
+.vessel-card.active { background: rgba(31,111,235,.08); border-color: var(--blue); }
+.vessel-card.hidden { display: none; }
+.vc-name { font-size: 0.8rem; font-weight: 600; color: var(--t1); }
+.vc-meta { font-size: 0.65rem; color: var(--t2); margin-top: 1px; }
+.vc-badge {
+  display: inline-block;
+  background: rgba(31,111,235,.12); color: var(--blue);
+  font-size: 0.58rem; font-weight: 600;
+  padding: 1px 6px; border-radius: 4px; margin-top: 3px;
+}
+
+/* ============================================================
+   4. Cylinder Sidebar (single-select)
+============================================================ */
+.cyl-sidebar {
+  position: fixed;
+  top: var(--topbar-h); bottom: 0;
+  width: var(--cylbar-w);
+  left: var(--sidebar-w);
+  background: var(--surf);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  z-index: 100;
+  transition: left .28s cubic-bezier(.4,0,.2,1);
+}
+.vessel-sidebar.collapsed ~ .cyl-sidebar { left: 0; }
+
+.cs-title {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: .12em;
+  color: var(--t3); text-transform: uppercase;
+  padding: 10px 12px 2px;
+}
+.cs-note {
+  font-size: 0.6rem; color: var(--t3);
+  padding: 0 12px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.cs-list { flex: 1; overflow-y: auto; padding: 2px 7px 8px; }
+.cyl-btn {
+  width: 100%;
+  background: var(--hover); border: 1px solid var(--border);
+  border-radius: 7px; padding: 7px 10px; margin-bottom: 4px;
+  color: var(--t2); font-size: 0.75rem; font-weight: 500;
+  cursor: pointer; text-align: left;
+  transition: all .15s;
+  display: flex; align-items: center; gap: 7px;
+}
+.cyl-btn:hover { background: #e2e8f0; border-color: var(--blue); color: var(--t1); }
+.cyl-btn.active {
+  background: var(--surf);
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1);
+}
+.cyl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* ============================================================
+   5. Main Content
+============================================================ */
+.main-wrap {
+  position: fixed;
+  top: var(--topbar-h); right: 0; bottom: 0;
+  left: calc(var(--sidebar-w) + var(--cylbar-w));
+  overflow-y: auto;
+  transition: left .28s cubic-bezier(.4,0,.2,1);
+}
+.vessel-sidebar.collapsed ~ .cyl-sidebar ~ .main-wrap { left: var(--cylbar-w); }
+.main-inner { padding: 16px 20px 28px; }
+
+/* Vessel info */
+.vi-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--surf); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 16px; margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.vi-bar h2 { font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: var(--t1); }
+.tag {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 2px 8px;
+  font-size: 0.65rem; color: var(--t2);
+}
+.tag strong { color: var(--t1); }
+
+/* ============================================================
+   6. Combined Chart Card
+============================================================ */
+.chart-card {
+  background: var(--surf); border: 1px solid var(--border);
+  border-radius: 12px; overflow: hidden;
+  box-shadow: var(--shadow); margin-bottom: 16px;
+}
+.chart-hdr {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.chart-hdr-title { font-size: 0.85rem; font-weight: 600; color: var(--t1); }
+.ind-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.ind-leg-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 0.67rem; color: var(--t2); cursor: pointer;
+  padding: 2px 7px; border-radius: 5px; border: 1px solid transparent;
+  transition: all .15s;
+}
+.ind-leg-item:hover { background: var(--hover); }
+.ind-leg-item.hidden-ind { opacity: 0.3; }
+.ind-leg-dot { width: 10px; height: 3px; border-radius: 2px; }
+.ind-leg-dot.dashed {
+  background: transparent;
+  border-top: 2px dashed currentColor;
+  width: 14px; height: 2px;
+}
+.chart-body { height: 400px; padding: 14px 16px; }
+
+/* ============================================================
+   7. Data Table
+============================================================ */
+.table-section { margin-top: 4px; }
+.table-title {
+  font-size: 0.62rem; font-weight: 700; letter-spacing: .1em;
+  color: var(--t3); text-transform: uppercase; margin-bottom: 7px;
+}
+.table-scroll {
+  overflow-x: auto; border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+table { width: 100%; border-collapse: collapse; font-size: 0.71rem; }
+thead { background: var(--bg); }
+th {
+  padding: 8px 12px; text-align: left;
+  color: var(--t2); font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #f0f3f8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  white-space: nowrap;
+  background: var(--surf);
+}
+tr:last-child td { border-bottom: none; }
+tr:nth-child(even) td { background: #fafbfd; }
+.fo-cat {
+  display: inline-block; border-radius: 4px;
+  padding: 1px 7px; font-size: 0.6rem; font-weight: 600;
+  font-family: 'Inter', sans-serif;
+}
+.fo-HSFO  { background: #fee2e2; color: #b91c1c; }
+.fo-VLSFO { background: #dbeafe; color: #1d4ed8; }
+.fo-ULSFO { background: #dcfce7; color: #15803d; }
+.fo-MDO, .fo-MGO { background: #fef9c3; color: #92400e; }
+
+/* Empty state */
+.empty {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; height: 180px;
+  color: var(--t3); gap: 8px; font-size: 0.8rem;
+}
+
+/* ============================================================
+   8. Diagnostic Panel
+============================================================ */
+.diag-section {
+  background: var(--surf); border: 1px solid var(--border);
+  border-radius: 12px; margin-bottom: 16px;
+  box-shadow: var(--shadow); overflow: hidden;
+}
+.diag-hdr {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.diag-hdr-title { font-size: 0.85rem; font-weight: 700; color: var(--t1); }
+.risk-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  border-radius: 20px; padding: 3px 10px;
+  font-size: 0.7rem; font-weight: 700; margin-left: auto;
+}
+.risk-OK     { background: #dcfce7; color: #15803d; }
+.risk-WATCH  { background: #fef9c3; color: #92400e; }
+.risk-WARN   { background: #ffedd5; color: #c2410c; }
+.risk-ALERT  { background: #fee2e2; color: #b91c1c; }
+.diag-body { padding: 14px 18px; display: flex; flex-direction: column; gap: 10px; }
+.diag-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px 12px; border-radius: 8px;
+  border-left: 4px solid transparent;
+}
+.diag-row.ok    { background: #f0fdf4; border-color: #86efac; }
+.diag-row.watch { background: #fefce8; border-color: #fde047; }
+.diag-row.warn  { background: #fff7ed; border-color: #fb923c; }
+.diag-row.alert { background: #fef2f2; border-color: #f87171; }
+.diag-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+.diag-content { flex: 1; }
+.diag-label {
+  font-size: 0.72rem; font-weight: 700; margin-bottom: 3px;
+  display: flex; align-items: center; gap: 8px;
+}
+.diag-trend {
+  font-size: 0.65rem; color: var(--t3);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 4px;
+}
+.diag-comment { font-size: 0.75rem; color: var(--t2); line-height: 1.5; }
+.diag-comment strong { color: var(--t1); }
+.trend-up   { color: #dc2626; }
+.trend-dn   { color: #16a34a; }
+.trend-flat { color: #6b7280; }
+  </style>
+</head>
+<body>
+
+<!-- ===== TOP BAR ===== -->
+<div class="topbar">
+  <button class="topbar-toggle" id="sidebar-toggle" title="顯示/收起船舶清單">☰</button>
+  <div class="topbar-logo">⚙️</div>
+  <div>
+    <div class="topbar-title">SDA Wear Trend Analyzer</div>
+    <div class="topbar-sub">二行程主機掃氣室殘油磨損趨勢診斷平台</div>
+  </div>
+  <div class="topbar-vessel hidden" id="topbar-vessel"></div>
+</div>
+
+<!-- ===== VESSEL SIDEBAR ===== -->
+<aside class="vessel-sidebar" id="vessel-sidebar">
+  <div class="vs-search-wrap">
+    <span class="vs-search-icon">🔍</span>
+    <input type="text" id="vessel-search" placeholder="搜尋船名或引擎…" autocomplete="off">
+  </div>
+  <div id="vessel-count"></div>
+  <div class="vessel-list" id="vessel-list"></div>
+</aside>
+
+<!-- ===== CYLINDER SIDEBAR (single-select) ===== -->
+<aside class="cyl-sidebar" id="cyl-sidebar">
+  <div class="cs-title">選擇汽缸</div>
+  <div class="cs-note">每次僅選擇一缸</div>
+  <div class="cs-list" id="cyl-list">
+    <div class="empty" style="height:80px;font-size:.72rem">請先選擇船舶</div>
+  </div>
+</aside>
+
+<!-- ===== MAIN ===== -->
+<div class="main-wrap" id="main-wrap">
+  <div class="main-inner" id="main-inner">
+    <div class="empty">🔍 請在左側選擇船舶</div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ============================================================
+// 1. Indicator Configuration
+// Each indicator has its own hidden Y-axis for correct scaling
+// ============================================================
+const INDICATORS = [
+  { key:'Iron',     label:'Iron (Fe)',      unit:'ppm',      color:'#1f6feb', dataKey:'Iron',     yAxis:'yIron',    dash:false },
+  { key:'PQ',       label:'PQ-Index',       unit:'',         color:'#ea580c', dataKey:'PQ',       yAxis:'yPQ',      dash:false },
+  { key:'BN',       label:'Residual BN',    unit:'mgKOH/g',  color:'#16a34a', dataKey:'BN',       yAxis:'yBN',      dash:false },
+  { key:'Cr',       label:'Chromium (Cr)',  unit:'ppm',      color:'#7c3aed', dataKey:'Cr',       yAxis:'yCr',      dash:false },
+  { key:'FeedRate', label:'Feed Rate',      unit:'g/kWh',    color:'#ca8a04', dataKey:'FeedRate', yAxis:'yFR',      dash:true  },
+  { key:'NV',       label:'Ni+V',           unit:'ppm',      color:'#9ca3af', dataKey:null,       yAxis:'yNV',      dash:true, isNV:true },
+  { key:'Water',    label:'Water',          unit:'%',        color:'#0891b2', dataKey:'Water',    yAxis:'yWater',   dash:true  }
+];
+
+const CYL_COLORS = [
+  '#1f6feb','#0891b2','#16a34a','#ea580c',
+  '#7c3aed','#dc2626','#ca8a04','#0f766e',
+  '#6d28d9','#c2410c','#059669','#d97706'
+];
+
+// ============================================================
+// 2. State
+// ============================================================
+let RAW_DATA      = {};
+let currentVessel = null;
+let currentCyl    = null;   // single selected cylinder key
+let cylOrder      = [];
+let _chart        = null;   // single chart instance
+
+// ============================================================
+// 3. Init
+// ============================================================
+function init() {
+  if (typeof SDA_DATA === 'undefined') {
+    document.getElementById('main-inner').innerHTML =
+      '<div class="empty">❌ 無法讀取 data.js，請確認檔案存在</div>';
+    return;
+  }
+  RAW_DATA = SDA_DATA;
+  buildVesselList();
+  const first = Object.keys(RAW_DATA)[0];
+  if (first) selectVessel(first);
+}
+
+// ============================================================
+// 4. Vessel Sidebar
+// ============================================================
+function buildVesselList() {
+  const list = document.getElementById('vessel-list');
+  list.innerHTML = '';
+  const entries = Object.entries(RAW_DATA)
+    .sort((a,b) => a[1].VesselName.localeCompare(b[1].VesselName));
+  for (const [nav, v] of entries) {
+    const cylCnt = Object.keys(v.cyls).length;
+    const recCnt = Object.values(v.cyls).reduce((s,r)=>s+r.length,0);
+    const card = document.createElement('div');
+    card.className = 'vessel-card';
+    card.dataset.nav  = nav;
+    card.dataset.name = v.VesselName.toLowerCase();
+    card.dataset.type = (v.EngineMake+' '+v.EngineType).toLowerCase();
+    card.innerHTML = `
+      <div class="vc-name">${v.VesselName}</div>
+      <div class="vc-meta">${v.EngineMake} ${v.EngineType}</div>
+      <span class="vc-badge">${cylCnt} Cyls · ${recCnt} Recs</span>`;
+    card.addEventListener('click', () => selectVessel(nav));
+    list.appendChild(card);
+  }
+  updateCount();
+}
+
+function filterVessels(q) {
+  const kw = q.toLowerCase().trim();
+  document.querySelectorAll('.vessel-card').forEach(c => {
+    c.classList.toggle('hidden', !(!kw || c.dataset.name.includes(kw) || c.dataset.type.includes(kw)));
+  });
+  updateCount();
+}
+function updateCount() {
+  const total   = document.querySelectorAll('.vessel-card').length;
+  const visible = document.querySelectorAll('.vessel-card:not(.hidden)').length;
+  document.getElementById('vessel-count').textContent =
+    total===visible ? `共 ${total} 艘` : `顯示 ${visible}/${total} 艘`;
+}
+document.getElementById('vessel-search').addEventListener('input', e => filterVessels(e.target.value));
+
+// ============================================================
+// 5. Sidebar Toggle
+// ============================================================
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  const sb = document.getElementById('vessel-sidebar');
+  sb.classList.toggle('collapsed');
+  const collapsed = sb.classList.contains('collapsed');
+  document.getElementById('cyl-sidebar').style.left = collapsed ? '0' : 'var(--sidebar-w)';
+  document.getElementById('main-wrap').style.left =
+    collapsed ? 'var(--cylbar-w)' : 'calc(var(--sidebar-w) + var(--cylbar-w))';
+});
+
+// ============================================================
+// 6. Select Vessel
+// ============================================================
+function selectVessel(nav) {
+  currentVessel = RAW_DATA[nav];
+  document.querySelectorAll('.vessel-card').forEach(c =>
+    c.classList.toggle('active', c.dataset.nav === nav));
+  const tv = document.getElementById('topbar-vessel');
+  tv.textContent = currentVessel.VesselName;
+  tv.classList.remove('hidden');
+
+  cylOrder = Object.keys(currentVessel.cyls).sort((a,b) =>
+    (parseInt(a.replace(/\D/g,''))||0) - (parseInt(b.replace(/\D/g,''))||0));
+
+  // Default: first cylinder
+  currentCyl = cylOrder[0] || null;
+  buildCylList();
+  renderMain();
+
+  // Auto-collapse vessel sidebar
+  const sb = document.getElementById('vessel-sidebar');
+  if (!sb.classList.contains('collapsed')) {
+    sb.classList.add('collapsed');
+    document.getElementById('cyl-sidebar').style.left = '0';
+    document.getElementById('main-wrap').style.left = 'var(--cylbar-w)';
+  }
+}
+
+// ============================================================
+// 7. Cylinder Selector (single-select)
+// ============================================================
+function buildCylList() {
+  const list = document.getElementById('cyl-list');
+  list.innerHTML = '';
+  cylOrder.forEach((cyl, i) => {
+    const color = CYL_COLORS[i % CYL_COLORS.length];
+    const btn = document.createElement('button');
+    btn.className = 'cyl-btn' + (cyl === currentCyl ? ' active' : '');
+    btn.dataset.cyl = cyl;
+    btn.style.color = color;
+    if (cyl === currentCyl) btn.style.borderColor = color;
+    btn.innerHTML = `<span class="cyl-dot" style="background:${color}"></span>${cyl}`;
+    btn.addEventListener('click', () => selectCyl(cyl, i));
+    list.appendChild(btn);
+  });
+}
+
+/**
+ * @param {string} cyl
+ * @param {number} idx
+ */
+function selectCyl(cyl, idx) {
+  currentCyl = cyl;
+  // Update button styles (single-select)
+  cylOrder.forEach((c, i) => {
+    const color = CYL_COLORS[i % CYL_COLORS.length];
+    const btn = document.querySelector(`.cyl-btn[data-cyl="${c}"]`);
+    if (!btn) return;
+    const isActive = c === cyl;
+    btn.classList.toggle('active', isActive);
+    btn.style.borderColor = isActive ? color : '';
+  });
+  renderMain();
+}
+
+// ============================================================
+// 8. Ni+V Points for selected cylinder
+// ============================================================
+
+/** @param {Object} vessel @param {string} cyl @returns {Array} */
+function buildNvPoints(vessel, cyl) {
+  return (vessel.cyls[cyl] || [])
+    .filter(r => r.date)
+    .map(r => ({ x: new Date(r.date).getTime(), y: (r.Ni??0)+(r.V??0) }));
+}
+
+// ============================================================
+// 9. Render Main
+// ============================================================
+function renderMain() {
+  if (!currentVessel) return;
+  const v = currentVessel;
+  const inner = document.getElementById('main-inner');
+
+  // Destroy old chart
+  if (_chart) { try { _chart.destroy(); } catch(e){} _chart = null; }
+  inner.innerHTML = '';
+
+  // Vessel info bar
+  const viBar = document.createElement('div');
+  viBar.className = 'vi-bar';
+  viBar.innerHTML = `
+    <h2>${v.VesselName}</h2>
+    <div class="tag"><strong>${v.EngineMake}</strong></div>
+    <div class="tag"><strong>${v.EngineType}</strong></div>
+    <div class="tag">IMO <strong>${v.IMO}</strong></div>
+    <div class="tag">${v.Owner}</div>`;
+  inner.appendChild(viBar);
+
+  if (!currentCyl) {
+    inner.innerHTML += '<div class="empty">請從左側選擇汽缸</div>';
+    return;
+  }
+
+  // Chart card
+  const card = document.createElement('div');
+  card.className = 'chart-card';
+
+  // Build indicator legend HTML
+  const legHTML = INDICATORS.map(ind => `
+    <div class="ind-leg-item" data-ind="${ind.key}" title="${ind.label}${ind.unit?` (${ind.unit})`:''}" >
+      ${ind.dash
+        ? `<hr class="ind-leg-dot dashed" style="border-color:${ind.color}">`
+        : `<div class="ind-leg-dot" style="background:${ind.color}"></div>`}
+      ${ind.label}
+    </div>`).join('');
+
+  card.innerHTML = `
+    <div class="chart-hdr">
+      <div class="chart-hdr-title">📊 ${currentCyl} — 磨損趨勢綜合圖</div>
+      <div class="ind-legend" id="ind-legend">${legHTML}</div>
+    </div>
+    <div class="chart-body"><canvas id="main-canvas"></canvas></div>`;
+  inner.appendChild(card);
+
+  // Build datasets for current cylinder
+  const recs = v.cyls[currentCyl] || [];
+  const datasets = [];
+
+  for (const ind of INDICATORS) {
+    if (ind.isNV) {
+      // Ni+V
+      datasets.push({
+        label:            'Ni+V',
+        data:             buildNvPoints(v, currentCyl),
+        borderColor:      ind.color,
+        backgroundColor:  ind.color + '18',
+        borderWidth:      1.5,
+        borderDash:       [5,4],
+        pointRadius:      2,
+        pointStyle:       'rectRot',
+        tension:          0.3,
+        fill:             false,
+        yAxisID:          ind.yAxis,
+        spanGaps:         true
+      });
+    } else {
+      datasets.push({
+        label:            ind.label,
+        data:             recs
+                           .filter(r => r[ind.dataKey] !== null && r[ind.dataKey] !== undefined)
+                           .map(r => ({ x: new Date(r.date).getTime(), y: r[ind.dataKey] })),
+        borderColor:      ind.color,
+        backgroundColor:  ind.color + '18',
+        borderWidth:      2,
+        borderDash:       ind.dash ? [5,4] : [],
+        pointRadius:      3,
+        pointHoverRadius: 6,
+        tension:          0.3,
+        fill:             false,
+        yAxisID:          ind.yAxis,
+        spanGaps:         true
+      });
+    }
+  }
+
+  // Build Y-axis scales
+  // Show Iron (left) and BN (right) tick labels; others hidden for clean look
+  const scales = {
+    x: {
+      type: 'time',
+      time: { unit: 'month', displayFormats: { month: 'yy-MM' } },
+      grid: { color: '#f0f3f8' },
+      ticks: { color: '#9ca3af', font: { size: 9 }, maxRotation: 30 }
+    },
+    yIron: {
+      type:'linear', position:'left', beginAtZero:true,
+      grid: { color: '#e5e7eb' },
+      ticks: { color: '#1f6feb', font:{ size:9 } },
+      title: { display:true, text:'Fe / Cr / Ni+V  (ppm)', color:'#1f6feb', font:{size:9} }
+    },
+    yPQ: {
+      type:'linear', position:'left', beginAtZero:true,
+      display: false         // hidden scale; tooltip still shows value
+    },
+    yBN: {
+      type:'linear', position:'right', beginAtZero:true,
+      grid: { display:false },
+      ticks: { color: '#16a34a', font:{size:9} },
+      title: { display:true, text:'Residual BN (mgKOH/g)  |  PQ  |  FeedRate', color:'#16a34a', font:{size:9} }
+    },
+    yCr: {
+      type:'linear', position:'left', beginAtZero:true, display:false
+    },
+    yFR: {
+      type:'linear', position:'right', beginAtZero:true, display:false
+    },
+    yNV: {
+      type:'linear', position:'left', beginAtZero:true, display:false
+    },
+    yWater: {
+      type:'linear', position:'right', beginAtZero:true, display:false
+    }
+  };
+
+  const ctx = document.getElementById('main-canvas').getContext('2d');
+  _chart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode:'index', intersect:false },
+      scales,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#ffffff',
+          borderColor: '#d8dde6', borderWidth: 1,
+          titleColor: '#1c2333', bodyColor: '#4b5563',
+          bodyFont: { family:'JetBrains Mono', size:11 },
+          callbacks: {
+            title: items => {
+              if (!items.length) return '';
+              return new Date(items[0].raw.x).toISOString().split('T')[0];
+            },
+            label: ctx => {
+              const y = ctx.raw?.y;
+              const val = (y !== null && y !== undefined) ? Number(y).toFixed(2) : '—';
+              const ind = INDICATORS.find(i => i.label === ctx.dataset.label || i.key === ctx.dataset.label);
+              const u = ind?.unit ? ` ${ind.unit}` : '';
+              return ` ${ctx.dataset.label}: ${val}${u}`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Indicator legend toggle
+  document.querySelectorAll('.ind-leg-item').forEach((el, i) => {
+    el.addEventListener('click', () => {
+      const meta = _chart.getDatasetMeta(i);
+      meta.hidden = !meta.hidden;
+      el.classList.toggle('hidden-ind', meta.hidden);
+      _chart.update();
+    });
+  });
+
+  // Diagnostic panel (before table)
+  buildDiagnosticPanel(v, currentCyl, inner);
+
+  // Data table
+  buildTable(v, currentCyl, inner);
+}
+
+// ============================================================
+// 10. Diagnostic Engine
+// ============================================================
+
+/**
+ * Trend direction using linear regression on the last 3 data points.
+ * Returns: 'up' | 'down' | 'flat'
+ * Threshold: slope must exceed ±8% of the mean to be non-flat.
+ * @param {number[]} arr
+ */
+function trendDir(arr) {
+  if (arr.length < 2) return 'flat';
+  // Use at most last 3 non-null points
+  const pts = arr.slice(-3);
+  if (pts.length < 2) return 'flat';
+  const n = pts.length;
+  // x = 0,1,2,...
+  const sumX  = pts.reduce((_,__,i) => _ + i, 0);
+  const sumY  = pts.reduce((a,b) => a + b, 0);
+  const sumXY = pts.reduce((a,b,i) => a + i*b, 0);
+  const sumX2 = pts.reduce((a,_,i) => a + i*i, 0);
+  const denom = n*sumX2 - sumX*sumX;
+  if (denom === 0) return 'flat';
+  const slope = (n*sumXY - sumX*sumY) / denom;
+  const mean  = sumY / n;
+  const pct   = Math.abs(slope) / (Math.abs(mean) || 1);
+  if (pct < 0.08) return 'flat';   // 8% threshold
+  return slope > 0 ? 'up' : 'down';
+}
+
+/** Latest non-null value from recs for a key */
+function latestVal(recs, key) {
+  for (let i = recs.length-1; i >= 0; i--) {
+    if (recs[i][key] !== null && recs[i][key] !== undefined) return recs[i][key];
+  }
+  return null;
+}
+
+/** Extract numeric series (non-null) */
+function series(recs, key) {
+  return recs.map(r => r[key]).filter(v => v !== null && v !== undefined);
+}
+
+/**
+ * Generate structured diagnosis for one cylinder.
+ * @param {Object} vessel
+ * @param {string} cyl
+ * @returns {Object} { overallRisk, rows }
+ */
+function generateDiagnosis(vessel, cyl) {
+  const recs = vessel.cyls[cyl] || [];
+  if (recs.length === 0) return null;
+
+  // ============================================================
+  // EVERLLENCE SL2025-776 Table 2: Iron thresholds by fuel type
+  // ============================================================
+  const fe  = latestVal(recs,'Iron');
+  const pq  = latestVal(recs,'PQ');
+  const bn  = latestVal(recs,'BN');
+  const cr  = latestVal(recs,'Cr');
+  const fr  = latestVal(recs,'FeedRate');
+  const sul = latestVal(recs,'FOSulphur');
+  const cat = latestVal(recs,'Catfine');
+  const wat = latestVal(recs,'Water');
+  const cylOilStr = latestVal(recs,'CylOil') || latestVal(recs,'BNLevel') || '';
+  const nv  = recs.length ? (recs[recs.length-1].Ni??0)+(recs[recs.length-1].V??0) : null;
+
+  // Determine fuel sulphur category
+  const fuelCat = !sul         ? 'VLSFO'   // fallback
+    : sul <= 0.10              ? 'ULSFO'
+    : sul <= 0.50              ? 'VLSFO'
+    : 'HSFO';
+  const fuelCatLabel = { ULSFO:'ULSFO (≤0.1% S)', VLSFO:'VLSFO (0.1–0.5% S)', HSFO:'HSFO (0.5–3.5% S)' }[fuelCat];
+
+  // Iron thresholds per SL2025-776 Table 2 (ppm = mg/kg)
+  const IRON_TH = {
+    ULSFO: { normal:25,  raised:40,  abnormal:40,  alert:300 },
+    VLSFO: { normal:40,  raised:80,  abnormal:80,  alert:300 },
+    HSFO:  { normal:100, raised:200, abnormal:200, alert:800 }
+  }[fuelCat];
+
+  // Extract cylinder oil BN grade (40 / 70 / 100 / 140)
+  function parseBNGrade(str) {
+    if (!str) return null;
+    const m = String(str).match(/(140|100|70|40)/); // order matters: check 140 first
+    return m ? parseInt(m[1]) : null;
+  }
+  const bnGrade = parseBNGrade(cylOilStr);
+
+  // BN thresholds per SL2025-776 Table 4 { normalLow, low, alert }
+  // Each entry: [normalLow, lowThreshLow, alertThresh]
+  const BN_TH_MAP = {
+    40:  { ULSFO:{ ni:24, lo:16, al:15 }, VLSFO:{ ni:20, lo:16, al:15 }, HSFO:null },
+    70:  { ULSFO:{ ni:42, lo:28, al:27 }, VLSFO:{ ni:35, lo:28, al:27 }, HSFO:{ ni:21, lo:14, al:13 } },
+    100: { ULSFO:{ ni:60, lo:40, al:39 }, VLSFO:{ ni:50, lo:40, al:39 }, HSFO:{ ni:30, lo:20, al:19 } },
+    140: { ULSFO:{ ni:84, lo:56, al:55 }, VLSFO:{ ni:70, lo:56, al:55 }, HSFO:{ ni:42, lo:28, al:27 } }
+  };
+  const bnTH = bnGrade && BN_TH_MAP[bnGrade] ? BN_TH_MAP[bnGrade][fuelCat] : null;
+  const bnGradeLabel = bnGrade ? `BN ${bnGrade}` : '（未知等級）';
+
+  // Fixed thresholds for other parameters
+  const TH = {
+    PQ:       { warn:30,  alert:60  },
+    Cr:       { warn:5,   alert:15  },
+    NV:       { warn:200, alert:400 },
+    Catfine:  { warn:15,  alert:25  },
+    Water:    { warn:0.5            },
+    FeedRate: { low:0.6             }
+  };
+
+  const feT  = trendDir(series(recs,'Iron'));
+  const pqT  = trendDir(series(recs,'PQ'));
+  const bnT  = trendDir(series(recs,'BN'));
+  const crT  = trendDir(series(recs,'Cr'));
+  const frT  = trendDir(series(recs,'FeedRate'));
+  const catT = trendDir(series(recs,'Catfine'));
+  const watT = trendDir(series(recs,'Water'));
+  // Ni+V series: sum Ni+V per record
+  const nvSeries = recs.map(r => (r.Ni??0)+(r.V??0)).filter(v => v > 0);
+  const nvT  = trendDir(nvSeries);
+
+  const tIcon = t => t==='up' ? '↑' : t==='down' ? '↓' : '→';
+  const tCls  = t => t==='up' ? 'trend-up' : t==='down' ? 'trend-dn' : 'trend-flat';
+  const n1 = v => v!==null && v!==undefined ? Number(v).toFixed(1) : 'N/A';
+  const n2 = v => v!==null && v!==undefined ? Number(v).toFixed(2) : 'N/A';
+
+  const rows = [];
+  let riskLevel = 0;
+  const setRisk = lvl => { if (lvl > riskLevel) riskLevel = lvl; };
+
+  // ── 1. Iron Content (SL2025-776 Table 2) ──
+  {
+    let cls='ok', icon='✅', comment='';
+    let ironStatus = 'normal';
+    if (fe !== null) {
+      if      (fe > IRON_TH.alert)    { ironStatus='alert';    cls='alert'; icon='🚨'; setRisk(3); }
+      else if (fe > IRON_TH.abnormal) { ironStatus='abnormal'; cls='warn';  icon='⚠️'; setRisk(2); }
+      else if (fe > IRON_TH.normal)   { ironStatus='raised';   cls='watch'; icon='👁️'; setRisk(1); }
+      else if (feT==='up')            {                        cls='watch'; icon='👁️'; setRisk(1); }
+    }
+    const ref = `（參考：${fuelCatLabel} → 正常≤${IRON_TH.normal}, Raised ${IRON_TH.normal}–${IRON_TH.raised}, Abnormal >${IRON_TH.abnormal}, Alert >${IRON_TH.alert} mg/kg）`;
+    if (ironStatus==='alert')
+      comment = `鐵含量 <strong>${n1(fe)} mg/kg</strong> 已達 <strong>Alert 等級</strong>，汽缸嚴重磨損，須立即停缸評估。${ref}`;
+    else if (ironStatus==='abnormal')
+      comment = `鐵含量 <strong>${n1(fe)} mg/kg</strong> 屬 <strong>Abnormal</strong>，超出燃油類型允許範圍，磨損速率偏高，請追蹤並確認 Catfine、BN 水平。${ref}`;
+    else if (ironStatus==='raised')
+      comment = `鐵含量 <strong>${n1(fe)} mg/kg</strong> 屬 <strong>Raised</strong>，偏離正常區間，建議提高觀察頻率。${ref}`;
+    else if (feT==='up')
+      comment = `鐵含量 ${n1(fe)} mg/kg 在正常範圍內，但呈<strong>上升趨勢</strong>，需持續觀察。${ref}`;
+    else
+      comment = `鐵含量 <strong>${n1(fe)} mg/kg</strong>，符合 <strong>Normal</strong> 範圍。${ref}`;
+    rows.push({ cls, icon,
+      label: `Iron (Fe)&nbsp;<span class="${tCls(feT)}">${tIcon(feT)}</span>`,
+      trend: `最新: ${n1(fe)} mg/kg｜燃油類型: ${fuelCatLabel}`,
+      comment });
+  }
+
+  // ── 2. PQ-Index ──
+  {
+    let cls='ok', icon='✅', comment='';
+    if (pq !== null) {
+      if (pq >= TH.PQ.alert) { cls='alert'; icon='🚨'; setRisk(3); }
+      else if (pq >= TH.PQ.warn)  { cls='warn';  icon='⚠️'; setRisk(2); }
+      else if (pqT==='up')        { cls='watch'; icon='👁️'; setRisk(1); }
+    }
+    if (pq >= TH.PQ.alert)
+      comment = `PQ-Index <strong>${n1(pq)}</strong> 極高，代表油中大量磁性鐵顆粒聚集，磨損已進入嚴重階段。請結合 Iron 值與 Catfine 數據交叉判斷磨損來源。`;
+    else if (pq >= TH.PQ.warn)
+      comment = `PQ-Index <strong>${n1(pq)}</strong> 偏高（>30），磁性磨損粒子明顯增加。若 Catfine 同時偏高，研磨性磨損可能為主因。`;
+    else if (pqT==='up')
+      comment = `PQ-Index（${n1(pq)}）趨勢上升，建議與 Iron 趨勢同步追蹤。`;
+    else
+      comment = `PQ-Index <strong>${n1(pq)}</strong>，磁性磨損粒子水平正常。`;
+    rows.push({ cls, icon,
+      label: `PQ-Index&nbsp;<span class="${tCls(pqT)}">${tIcon(pqT)}</span>`,
+      trend: `最新: ${n1(pq)}`,
+      comment });
+  }
+
+  // ── 3. Residual BN (SL2025-776 Table 4) ──
+  {
+    let cls='ok', icon='✅', comment='';
+    if (bnTH && bn !== null) {
+      if      (bn <= bnTH.al) { cls='alert'; icon='🚨'; setRisk(3); }
+      else if (bn <  bnTH.lo) { cls='warn';  icon='⚠️'; setRisk(2); }
+      else if (bn <  bnTH.ni || bnT==='down') { cls='watch'; icon='👁️'; setRisk(1); }
+    } else if (!bnTH && bnT==='down') {
+      cls='watch'; icon='👁️'; setRisk(1);
+    }
+    const bnRef = bnTH
+      ? `（${bnGradeLabel} × ${fuelCatLabel}：Normal ≥${bnTH.ni}, Low ${bnTH.lo}–${bnTH.ni-1}, Alert ≤${bnTH.al}）`
+      : `（汽缸油 BN 等級：${bnGradeLabel}，請對照 SL2025-776 Table 4）`;
+    if (bnTH && bn <= bnTH.al)
+      comment = `殘留 BN <strong>${n2(bn)} mgKOH/g</strong> 已達 <strong>Alert 等級</strong>，鹼值中和能力嚴重不足，高腐蝕風險。應立即提高 FeedRate 或更換高 BN 等級汽缸油。${bnRef}`;
+    else if (bnTH && bn < bnTH.lo)
+      comment = `殘留 BN <strong>${n2(bn)} mgKOH/g</strong> 屬 <strong>Low 等級</strong>，中和能力偏弱，建議提升 FeedRate 從燃油硫份（${n2(sul)}%）計算合理用量。${bnRef}`;
+    else if (bnTH && bn < bnTH.ni)
+      comment = `殘留 BN <strong>${n2(bn)} mgKOH/g</strong> 偏低於正常下限，尚在 Normal 和 Low 之間，建議追蹤。${bnRef}`;
+    else if (bnT==='down')
+      comment = `殘留 BN 呈<strong>下降趨勢</strong>（現為 ${n2(bn)} mgKOH/g），需警戒是否接近 Low 等級閾值。${bnRef}`;
+    else
+      comment = `殘留 BN <strong>${n2(bn)} mgKOH/g</strong>，在 <strong>Normal</strong> 範圍內，中和能力充足。${bnRef}`;
+    rows.push({ cls, icon,
+      label: `Residual BN&nbsp;<span class="${tCls(bnT)}">${tIcon(bnT)}</span>`,
+      trend: `最新: ${n2(bn)} mgKOH/g｜汽缸油: ${bnGradeLabel}`,
+      comment });
+  }
+
+  // ── 4. Chromium ──
+  {
+    let cls='ok', icon='✅', comment='';
+    if (cr !== null) {
+      if (cr >= TH.Cr.alert) { cls='alert'; icon='🚨'; setRisk(3); }
+      else if (cr >= TH.Cr.warn) { cls='warn'; icon='⚠️'; setRisk(2); }
+      else if (crT==='up')       { cls='watch'; icon='👁️'; setRisk(1); }
+    }
+    if (cr >= TH.Cr.alert)
+      comment = `Chromium <strong>${n1(cr)} ppm</strong> 超過臨界值，活塞環鉻質塗層嚴重磨損。請評估是否為 Catfine 研磨（Al+Si）所致，建議更換具備更佳抗磨性的汽缸油。`;
+    else if (cr >= TH.Cr.warn)
+      comment = `Chromium <strong>${n1(cr)} ppm</strong> 偏高，活塞環塗層磨損加速。若 Catfine 同步偏高（>${TH.Catfine.warn} ppm），硬顆粒研磨為主因。`;
+    else if (crT==='up')
+      comment = `Chromium（${n1(cr)} ppm）有上升趨勢，需持續觀察。`;
+    else
+      comment = `Chromium <strong>${n1(cr)} ppm</strong>，活塞環塗層磨損狀況正常。`;
+    rows.push({ cls, icon,
+      label: `Chromium (Cr)&nbsp;<span class="${tCls(crT)}">${tIcon(crT)}</span>`,
+      trend: `最新: ${n1(cr)} ppm`,
+      comment });
+  }
+
+  // ── 5. Water (酸形成) ──
+  if (wat !== null && wat > 0) {
+    let cls='ok', icon='✅', comment='';
+    if      (wat >= TH.Water.warn) { cls='warn';  icon='⚠️'; setRisk(2); }
+    else if (watT==='up')          { cls='watch'; icon='👁️'; setRisk(1); }
+    if (wat >= TH.Water.warn)
+      comment = `Water 含量 <strong>${n2(wat)}%</strong>（≥ 0.5%），水分進入汽缸油樣品中，與燃燒殘酸反應生成酸性物質，加劇腐蝕性磨損。<strong>建議優先確認水分來源</strong>（冷卻水洩漏、燃料水分過高、冷凝水），並核查 Residual BN 是否足夠中和。`;
+    else if (watT==='up')
+      comment = `Water 含量呈<strong>上升趨勢</strong>（現為 ${n2(wat)}%），尚未達警戒箛値，建議觀察水分來源，防止酸形成風險升高。`;
+    else
+      comment = `Water 含量 <strong>${n2(wat)}%</strong>，微量水分，趨勢穩定，目前無酸形成風險。`;
+    rows.push({ cls, icon,
+      label: `Water（水分）&nbsp;<span class="${tCls(watT)}">${tIcon(watT)}</span>`,
+      trend: `最新: ${n2(wat)} %`,
+      comment });
+  }
+
+  // ── 6. Catfine (研磨磨損) ──
+  if (cat !== null && cat > 0) {
+    let cls='ok', icon='✅', comment='';
+    if      (cat >= TH.Catfine.alert) { cls='alert'; icon='🚨'; setRisk(3); }
+    else if (cat >= TH.Catfine.warn)  { cls='warn';  icon='⚠️'; setRisk(2); }
+    else if (catT==='up')             { cls='watch'; icon='👁️'; setRisk(1); }
+    if (cat >= TH.Catfine.alert)
+      comment = `Catfine <strong>${n1(cat)} ppm</strong> 危險性偏高（≥ 25 ppm）。觸媒微粒（Al+Si）研磨力極強，與 Chromium 上升、PQ 偏高同步出現時，<strong>立即追溯燃油來源</strong>，確認燃油是否通過合規的 Catfine 淨化程序。`;
+    else if (cat >= TH.Catfine.warn)
+      comment = `Catfine <strong>${n1(cat)} ppm</strong> 偏高（≥ 15 ppm），觸媒微粒開始造成研磨性磨損。請比對 Chromium 及 PQ-Index 確認影響程度，並強化燃油淨化設定。`;
+    else if (catT==='up')
+      comment = `Catfine <strong>${n1(cat)} ppm</strong> 在正常範圍內，但呢<strong>上升趨勢</strong>，建議監控 Chromium 與 PQ 趨勢以防範研磨性磨損加劇。`;
+    else
+      comment = `Catfine <strong>${n1(cat)} ppm</strong>，觸媒微粒含量正常，趨勢穩定，研磨性磨損風險低。`;
+    rows.push({ cls, icon,
+      label: `Catfine（觸媒微粒）&nbsp;<span class="${tCls(catT)}">${tIcon(catT)}</span>`,
+      trend: `最新: ${n1(cat)} ppm`,
+      comment });
+  }
+
+  // ── 7. Ni+V（燃燒品質）──
+  if (nv !== null) {
+    let cls='ok', icon='✅', comment='';
+    if      (nv >= TH.NV.alert) { cls='warn';  icon='⚠️'; setRisk(2); }
+    else if (nv >= TH.NV.warn)  { cls='watch'; icon='👁️'; setRisk(1); }
+    else if (nvT==='up')        { cls='watch'; icon='👁️'; setRisk(1); }
+    if (nv >= TH.NV.alert)
+      comment = `Ni+V <strong>${Math.round(nv)} ppm</strong> 偏高，佐證燃油為高殘渣重油，燃燒產物腐蝕性較強。配合 BN 水平與 FeedRate 是否充足是關鍵防護措施。`;
+    else if (nv >= TH.NV.warn)
+      comment = `Ni+V <strong>${Math.round(nv)} ppm</strong> 中等，燃油品質屬中重油類型，建議保持適當 BN 供給以應對磺酸中和需求。`;
+    else if (nvT==='up')
+      comment = `Ni+V <strong>${Math.round(nv)} ppm</strong> 呢<strong>上升趨勢</strong>，燃油磺份或重油成分可能增加，建議持續監控 BN 中和能力。`;
+    else
+      comment = `Ni+V <strong>${Math.round(nv)} ppm</strong>，燃油品質良好，燃燒腐蝕負擔較輕。`;
+    rows.push({ cls, icon,
+      label: `Ni+V（燃燒品質指標）&nbsp;<span class="${tCls(nvT)}">${tIcon(nvT)}</span>`,
+      trend: `Ni+V 合計: ${Math.round(nv)} ppm`,
+      comment });
+  }
+
+  // ── 8. FeedRate ──
+  {
+    let cls='ok', icon='✅', comment='';
+    if      (fr !== null && fr < TH.FeedRate.low) { cls='watch'; icon='👁️'; setRisk(1); }
+    else if (frT==='down')                        { cls='watch'; icon='👁️'; setRisk(1); }
+    if (fr !== null && fr < TH.FeedRate.low)
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> 偏低（< 0.6 g/kWh），加上燃油硫份 ${n2(sul)}%，汽缸油供給可能不足以中和磺酸，建議提高至製造商建議值。`;
+    else if (frT==='down')
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> 呢<strong>下降趨勢</strong>，尚高於最低箛値，但應注意燃油硫份（${n2(sul)}%）與汽缸油供給量的匹配性。`;
+    else
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong>，供油量充足，趨勢穩定。`;
+    rows.push({ cls, icon,
+      label: `Feed Rate（供油量）&nbsp;<span class="${tCls(frT)}">${tIcon(frT)}</span>`,
+      trend: `最新: ${n2(fr)} g/kWh`,
+      comment });
+  }
+
+  const riskMap = ['OK','WATCH','WARN','ALERT'];
+  return { overallRisk: riskMap[riskLevel], rows };
+}
+
+/**
+ * Build and append the diagnostic panel
+ * @param {Object} vessel @param {string} cyl @param {HTMLElement} container
+ */
+function buildDiagnosticPanel(vessel, cyl, container) {
+  const result = generateDiagnosis(vessel, cyl);
+  if (!result) return;
+
+  const { overallRisk, rows } = result;
+  const riskEmoji = { OK:'✅ 正常', WATCH:'👁️ 觀察', WARN:'⚠️ 警戒', ALERT:'🚨 臨界' };
+
+  const section = document.createElement('div');
+  section.className = 'diag-section';
+
+  const hdr = document.createElement('div');
+  hdr.className = 'diag-hdr';
+  hdr.innerHTML = `
+    <div class="diag-hdr-title">🧠 ${cyl} — AI 診斷分析報告</div>
+    <div class="risk-badge risk-${overallRisk}">${riskEmoji[overallRisk]}</div>`;
+  section.appendChild(hdr);
+
+  const body = document.createElement('div');
+  body.className = 'diag-body';
+  for (const row of rows) {
+    const div = document.createElement('div');
+    div.className = `diag-row ${row.cls}`;
+    div.innerHTML = `
+      <div class="diag-icon">${row.icon}</div>
+      <div class="diag-content">
+        <div class="diag-label">${row.label}</div>
+        <div class="diag-trend">${row.trend}</div>
+        <div class="diag-comment">${row.comment}</div>
+      </div>`;
+    body.appendChild(div);
+  }
+  section.appendChild(body);
+  container.appendChild(section);
+}
+
+// ============================================================
+// 11. Data Table
+// ============================================================
+function buildTable(vessel, cyl, container) {
+  const recs = vessel.cyls[cyl] || [];
+  if (!recs.length) return;
+
+  const section = document.createElement('div');
+  section.className = 'table-section';
+  section.innerHTML = `<div class="table-title">📋 ${cyl} — 化驗明細</div>`;
+
+  const fo = cat => {
+    if (!cat) return '<span style="color:#9ca3af">—</span>';
+    const u = cat.toUpperCase();
+    let cls = u.includes('HSFO') ? 'fo-HSFO'
+            : u.includes('VLSFO') ? 'fo-VLSFO'
+            : u.includes('ULSFO') ? 'fo-ULSFO'
+            : (u.includes('MDO')||u.includes('MGO')) ? 'fo-MDO' : '';
+    return `<span class="fo-cat ${cls}">${cat}</span>`;
+  };
+  const n = (v, dp=1) => (v!==null&&v!==undefined) ? Number(v).toFixed(dp) : '—';
+
+  let html = `
+    <table>
+      <thead><tr>
+        <th>化驗日期</th>
+        <th>FO Category</th>
+        <th>FO Sulphur %</th>
+        <th>Catfine ppm</th>
+        <th>Engine Load %</th>
+        <th>Feed Rate g/kWh</th>
+        <th>Residual BN</th>
+        <th>Iron ppm</th>
+        <th>PQ-Index</th>
+        <th>Cr ppm</th>
+        <th>Ni+V ppm</th>
+        <th>Cyl Oil</th>
+        <th>BN Level</th>
+      </tr></thead>
+      <tbody>`;
+
+  for (const r of recs) {
+    const nv = ((r.Ni??0)+(r.V??0)).toFixed(0);
+    html += `<tr>
+      <td>${r.date||'—'}</td>
+      <td>${fo(r.FOCategory)}</td>
+      <td>${n(r.FOSulphur,3)}</td>
+      <td>${n(r.Catfine,0)}</td>
+      <td>${n(r.EngineLoad,1)}</td>
+      <td>${n(r.FeedRate,2)}</td>
+      <td>${n(r.BN,2)}</td>
+      <td>${n(r.Iron,1)}</td>
+      <td>${n(r.PQ,1)}</td>
+      <td>${n(r.Cr,2)}</td>
+      <td>${nv}</td>
+      <td style="font-size:.62rem;color:#6b7280">${r.CylOil||'—'}</td>
+      <td>${r.BNLevel||'—'}</td>
+    </tr>`;
+  }
+  html += `</tbody></table>`;
+
+  const scroll = document.createElement('div');
+  scroll.className = 'table-scroll';
+  scroll.innerHTML = html;
+  section.appendChild(scroll);
+  container.appendChild(section);
+}
+
+// ============================================================
+// 11. Boot
+// ============================================================
+init();
+</script>
+</body>
+</html>

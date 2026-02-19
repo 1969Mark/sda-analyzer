@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Raw data (Excel - sensitive / large)
+lem_raw.xlsx
+
+# Dev / check scripts (not needed for deployment)
+check.py
+explore_data.py
+validate.py
+data.json
+
+# OS
+.DS_Store
+Thumbs.db
