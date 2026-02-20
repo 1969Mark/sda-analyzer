@@ -777,6 +777,7 @@ function series(recs, key) {
 
 /**
  * Generate structured diagnosis for one cylinder.
+ * Ref: SDA comment.pdf (MAN ES SL2023-738 / SL2025-776, WinGD, CIMAC)
  * @param {Object} vessel
  * @param {string} cyl
  * @returns {Object} { overallRisk, rows }
@@ -858,11 +859,18 @@ function generateDiagnosis(vessel, cyl) {
   const n1 = v => v!==null && v!==undefined ? Number(v).toFixed(1) : 'N/A';
   const n2 = v => v!==null && v!==undefined ? Number(v).toFixed(2) : 'N/A';
 
+  // ── Detect DF / LNG engine ──
+  const engineStr = ((vessel.EngineMake||'') + ' ' + (vessel.EngineType||'')).toLowerCase();
+  const isDualFuel = /x-df|xdf|lng|dual.?fuel|df\b/.test(engineStr);
+
+  // ── Detect Running-in period (≤3 records for this cyl) ──
+  const isRunningIn = recs.length <= 3;
+
   const rows = [];
   let riskLevel = 0;
   const setRisk = lvl => { if (lvl > riskLevel) riskLevel = lvl; };
 
-  // ── 1. Iron Content (SL2025-776 Table 2) ──
+  // ── 1. Iron Content (SL2025-776 Table 2 + SDA comment.pdf wear-type analysis) ──
   {
     let cls='ok', icon='✅', comment='';
     let ironStatus = 'normal';
@@ -873,16 +881,40 @@ function generateDiagnosis(vessel, cyl) {
       else if (feT==='up')            {                        cls='watch'; icon='👁️'; setRisk(1); }
     }
     const ref = `(Ref: ${fuelCatLabel} → Normal ≤${IRON_TH.normal}, Raised ${IRON_TH.normal}–${IRON_TH.raised}, Abnormal >${IRON_TH.abnormal}, Alert >${IRON_TH.alert} mg/kg)`;
-    if (ironStatus==='alert')
-      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> has reached <strong>Alert level</strong>. Severe cylinder wear — immediate out-of-service evaluation required. ${ref}`;
-    else if (ironStatus==='abnormal')
-      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is <strong>Abnormal</strong>, exceeding the allowable range for this fuel type. High wear rate — monitor Catfine and BN levels closely. ${ref}`;
+
+    // ── 磨損類型判斷（SDA comment.pdf p.3 磨損機制表） ──
+    let wearTypeNote = '';
+    if (fe !== null && fe > IRON_TH.normal) {
+      if (pq !== null && cat !== null && pq >= TH.PQ.warn && cat >= TH.Catfine.warn) {
+        // PQ高 + Catfine高 → 磨料磨損（Abrasive Wear）
+        wearTypeNote = ' <span style="font-size:.8em;background:#fff3cd;border-radius:4px;padding:1px 5px">🔬 Abrasive Wear pattern (high PQ + Catfine) — reinforce fuel purification and inspect scavenge filter.</span>';
+      } else if (pq !== null && pq < TH.PQ.warn) {
+        // Fe高 但 PQ低 → 腐蝕性磨損（Corrosive Wear），鐵鹽為主
+        wearTypeNote = ' <span style="font-size:.8em;background:#e8f4fd;border-radius:4px;padding:1px 5px">🧪 Corrosive Wear pattern (Fe↑ but PQ low) — likely iron-salt from acid attack. Raise scavenge temp and increase FeedRate or BN grade.</span>';
+      }
+    }
+
+    // ── 跑合期高鐵值說明（SDA comment.pdf p.7） ──
+    let runningInNote = '';
+    if (isRunningIn && fe !== null && fe > 200) {
+      runningInNote = ' <span style="font-size:.8em;background:#f0fdf4;border-radius:4px;padding:1px 5px">ℹ️ Running-in period detected (≤3 records). Iron 300–500 mg/kg is normal for new liner/ring-set. Set FeedRate to 1.5–1.7 g/kWh; monitor until iron stabilises.</span>';
+      // 跑合期不升高風險等級
+      if (fe <= 500) { cls='watch'; icon='👁️'; setRisk(1); }
+    }
+
+    if (ironStatus==='alert' && !isRunningIn)
+      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> has reached <strong>Alert level</strong>. Severe cylinder wear — immediate out-of-service evaluation required. ${ref}${wearTypeNote}`;
+    else if (ironStatus==='abnormal' && !isRunningIn)
+      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is <strong>Abnormal</strong>, exceeding the allowable range for this fuel type. High wear rate — monitor Catfine and BN closely. ${ref}${wearTypeNote}`;
     else if (ironStatus==='raised')
-      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is <strong>Raised</strong>, deviating from the normal range. Increase monitoring frequency. ${ref}`;
+      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is <strong>Raised</strong>, deviating from the normal range. Increase monitoring frequency. ${ref}${wearTypeNote}${runningInNote}`;
     else if (feT==='up')
-      comment = `Iron content ${n1(fe)} mg/kg is within normal range but shows an <strong>upward trend</strong> — continue monitoring. ${ref}`;
+      comment = `Iron content ${n1(fe)} mg/kg is within normal range but shows an <strong>upward trend</strong> — continue monitoring. ${ref}${runningInNote}`;
     else
-      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is within the <strong>Normal</strong> range. ${ref}`;
+      comment = `Iron content <strong>${n1(fe)} mg/kg</strong> is within the <strong>Normal</strong> range. ${ref}${runningInNote}`;
+
+    if (runningInNote && fe > 200 && fe <= 500 && isRunningIn) comment = `Iron content <strong>${n1(fe)} mg/kg</strong> — possibly Running-in phase. ${ref}${runningInNote}`;
+
     rows.push({ cls, icon,
       label: `Iron (Fe)&nbsp;<span class="${tCls(feT)}">${tIcon(feT)}</span>`,
       trend: `Latest: ${n1(fe)} mg/kg | Fuel Type: ${fuelCatLabel}`,
@@ -911,9 +943,11 @@ function generateDiagnosis(vessel, cyl) {
       comment });
   }
 
-  // ── 3. Residual BN (SL2025-776 Table 4) ──
+  // ── 3. Residual BN (SL2025-776 Table 4 + SDA comment.pdf WinGD BN+Fe matrix) ──
   {
     let cls='ok', icon='✅', comment='';
+    let bnHighAlert = false; // WinGD: BN > 50 即使 Fe 低也需警示
+
     if (bnTH && bn !== null) {
       if      (bn <= bnTH.al) { cls='alert'; icon='🚨'; setRisk(3); }
       else if (bn <  bnTH.lo) { cls='warn';  icon='⚠️'; setRisk(2); }
@@ -921,17 +955,39 @@ function generateDiagnosis(vessel, cyl) {
     } else if (!bnTH && bnT==='down') {
       cls='watch'; icon='👁️'; setRisk(1);
     }
+
+    // ── WinGD BN+Fe 二維控制法：殘油 BN > 50 屬警報狀態（SDA comment.pdf p.6） ──
+    if (bn !== null && bn > 50 && cls === 'ok') {
+      bnHighAlert = true;
+      cls = 'watch'; icon = '👁️'; setRisk(1);
+    }
+
     const bnRef = bnTH
       ? `(${bnGradeLabel} × ${fuelCatLabel}: Normal ≥${bnTH.ni}, Low ${bnTH.lo}–${bnTH.ni-1}, Alert ≤${bnTH.al})`
       : `(Cyl Oil BN Grade: ${bnGradeLabel} — refer to SL2025-776 Table 4)`;
-    if (bnTH && bn <= bnTH.al)
-      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> has reached <strong>Alert level</strong>. Alkalinity neutralisation is critically insufficient — high corrosion risk. Immediately increase FeedRate or switch to a higher BN grade cylinder oil. ${bnRef}`;
+
+    // ── 系統油稀釋（Stuffing Box 洩漏）判斷（SDA comment.pdf p.2） ──
+    // 若 BN 低且急速下降，提示可能為 SAE 30 系統油滲入（稀釋 BN，造成虛假偏低）
+    const bnSeriesAll = series(recs, 'BN');
+    let stuffingBoxNote = '';
+    if (bn !== null && bnTH && bn < bnTH.lo && bnT === 'down' && bnSeriesAll.length >= 2) {
+      const prev = bnSeriesAll[bnSeriesAll.length - 2];
+      const drop = prev - bn;
+      if (drop > 5) {
+        stuffingBoxNote = ' <span style="font-size:.8em;background:#fff3cd;border-radius:4px;padding:1px 5px">⚙️ Rapid BN drop (−' + drop.toFixed(1) + '): possible stuffing box seal wear causing SAE 30 system oil ingress — compare viscosity with system oil sample.</span>';
+      }
+    }
+
+    if (bnHighAlert)
+      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is <strong>excessively high (>50)</strong>. Per WinGD BN+Fe matrix, excess calcareous ash deposits may cause <strong>liner polishing</strong> and disrupt oil film — consider reducing FeedRate and inspect piston ring lands for carbon deposits. ${bnRef}`;
+    else if (bnTH && bn <= bnTH.al)
+      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> has reached <strong>Alert level</strong>. Alkalinity neutralisation is critically insufficient — high corrosion risk. Immediately increase FeedRate or switch to a higher BN grade cylinder oil. ${bnRef}${stuffingBoxNote}`;
     else if (bnTH && bn < bnTH.lo)
-      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is <strong>Low</strong>. Neutralisation capacity is weak — consider increasing FeedRate based on fuel sulphur content (${n2(sul)}%). ${bnRef}`;
+      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is <strong>Low</strong>. Neutralisation capacity is weak — consider increasing FeedRate based on fuel sulphur content (${n2(sul)}%). ${bnRef}${stuffingBoxNote}`;
     else if (bnTH && bn < bnTH.ni)
-      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is below the normal lower limit, between Normal and Low — monitor closely. ${bnRef}`;
+      comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is below the normal lower limit, between Normal and Low — monitor closely. ${bnRef}${stuffingBoxNote}`;
     else if (bnT==='down')
-      comment = `Residual BN is on a <strong>downward trend</strong> (currently ${n2(bn)} mgKOH/g). Alert if approaching Low threshold. ${bnRef}`;
+      comment = `Residual BN is on a <strong>downward trend</strong> (currently ${n2(bn)} mgKOH/g). Alert if approaching Low threshold. ${bnRef}${stuffingBoxNote}`;
     else
       comment = `Residual BN <strong>${n2(bn)} mgKOH/g</strong> is within the <strong>Normal</strong> range. Neutralisation capacity is adequate. ${bnRef}`;
     rows.push({ cls, icon,
@@ -1019,21 +1075,88 @@ function generateDiagnosis(vessel, cyl) {
       comment });
   }
 
-  // ── 8. FeedRate ──
+  // ── 8. FeedRate (+ Sweep Test / DF engine logic from SDA comment.pdf) ──
   {
     let cls='ok', icon='✅', comment='';
     if      (fr !== null && fr < TH.FeedRate.low) { cls='watch'; icon='👁️'; setRisk(1); }
     else if (frT==='down')                        { cls='watch'; icon='👁️'; setRisk(1); }
+
+    // ── DF/LNG 引擎提示（SDA comment.pdf p.7） ──
+    let dfNote = '';
+    if (isDualFuel) {
+      dfNote = ' <span style="font-size:.8em;background:#f0f4ff;border-radius:4px;padding:1px 5px">🔵 DF/LNG engine: BN consumption is minimal in gas mode. Recommend Low-Ash 15–25 BN cylinder oil; focus monitoring on magnetic iron and thermal degradation products (WinGD X-DF guidance).</span>';
+    }
+
+    // ── Sweep Test（掃描測試）建議（SDA comment.pdf p.6） ──
+    // 當 FeedRate 較高（>0.8）且 Fe、BN 均正常，且趨勢穩定 → 建議考慮優化降量
+    let sweepNote = '';
+    if (fr !== null && fr > 0.8 && frT !== 'down'
+        && (fe === null || fe <= IRON_TH.normal)
+        && (bn === null || (bnTH && bn >= bnTH.ni))) {
+      sweepNote = ' <span style="font-size:.8em;background:#f0fdf4;border-radius:4px;padding:1px 5px">💡 All wear indicators normal. Consider a <strong>Sweep Test</strong>: reduce FeedRate by 0.05–0.10 g/kWh per 24-hour step to find the minimum safe feed rate (SDA comment.pdf §Sweep Test).</span>';
+    }
+
     if (fr !== null && fr < TH.FeedRate.low)
-      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> is low (< 0.6 g/kWh). Combined with fuel sulphur content of ${n2(sul)}%, cylinder oil supply may be insufficient to neutralise sulphonic acid — increase to the manufacturer's recommended rate.`;
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> is low (< 0.6 g/kWh). Combined with fuel sulphur content of ${n2(sul)}%, cylinder oil supply may be insufficient to neutralise sulphonic acid — increase to the manufacturer's recommended rate.${dfNote}`;
     else if (frT==='down')
-      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> shows a <strong>downward trend</strong>. Still above the minimum threshold, but verify that the supply rate matches fuel sulphur content (${n2(sul)}%).`;
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> shows a <strong>downward trend</strong>. Still above the minimum threshold, but verify that the supply rate matches fuel sulphur content (${n2(sul)}%).${dfNote}`;
     else
-      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> — oil supply is adequate and trend is stable.`;
+      comment = `FeedRate <strong>${n2(fr)} g/kWh</strong> — oil supply is adequate and trend is stable.${sweepNote}${dfNote}`;
     rows.push({ cls, icon,
       label: `Feed Rate&nbsp;<span class="${tCls(frT)}">${tIcon(frT)}</span>`,
       trend: `Latest: ${n2(fr)} g/kWh`,
       comment });
+  }
+
+  // ── 9. Comprehensive Insight（多指標組合分析，SDA comment.pdf §結論） ──
+  {
+    const insights = [];
+
+    // 模式 A：三重警告 — Fe↑ + BN↓ + Catfine↑
+    if (fe !== null && fe > IRON_TH.normal
+        && bn !== null && bnTH && bn < bnTH.lo
+        && cat !== null && cat >= TH.Catfine.warn) {
+      insights.push('🔴 <strong>Triple-Risk Pattern:</strong> High Iron + Low BN + Elevated Catfine detected simultaneously. '
+        + 'Abrasive wear is accelerating while acid neutralisation is failing. '
+        + '<strong>Immediate actions:</strong> (1) Increase FeedRate to max, (2) Switch to higher BN oil, (3) Inspect fuel purification.');
+      setRisk(3);
+    }
+
+    // 模式 B：WinGD BN+Fe 矩陣 — BN > 50 過鹼積碳
+    if (bn !== null && bn > 50 && fe !== null && fe <= IRON_TH.normal) {
+      insights.push('🟡 <strong>WinGD Alert — High BN:</strong> Residual BN > 50 with normal Fe. '
+        + 'Excess alkaline ash may form hard deposits in ring lands and cause liner polishing (scuffing risk). '
+        + 'Reduce FeedRate and inspect piston ring groove for varnish/carbon build-up.');
+    }
+
+    // 模式 C：VLSFO 膠質積碳陷阱（SDA comment.pdf p.7）
+    // VLSFO 燃料 + BN 正常 + Fe 正常 但 BN、Fe 均有上升趨勢
+    if (fuelCat === 'VLSFO'
+        && bn !== null && bnTH && bn >= bnTH.ni && bnT === 'up'
+        && fe !== null && fe <= IRON_TH.normal && feT === 'up') {
+      insights.push('🟡 <strong>VLSFO Varnish Trap:</strong> Both BN and Fe are rising under VLSFO operation. '
+        + 'Some VLSFO blends contain high unsaturated hydrocarbons that form sticky carbon deposits in ring grooves, '
+        + 'even when BN/Fe values appear normal. '
+        + 'Consider: (1) Switch to MAN ES Cat. II oil for better dispersancy, or (2) apply intermittent flush — '
+        + 'run 24 h on BN 100 oil every 168 h to clean ring grooves.');
+    }
+
+    // 模式 D：PQ ↑ + Catfine ↑ = 磨料磨損確認
+    if (pq !== null && pq >= TH.PQ.warn && cat !== null && cat >= TH.Catfine.warn) {
+      insights.push('🟠 <strong>Abrasive Wear Confirmed (PQ + Catfine):</strong> '
+        + 'Elevated PQ-Index and Catfine together indicate catalyst fines (Al+Si) are actively causing abrasive wear. '
+        + 'Trace fuel supply source and verify purifier efficiency (≥ 98% Cat fine removal required).');
+    }
+
+    if (insights.length > 0) {
+      rows.push({
+        cls: riskLevel >= 3 ? 'alert' : riskLevel >= 2 ? 'warn' : 'watch',
+        icon: riskLevel >= 3 ? '🚨' : '💡',
+        label: `Comprehensive Insight`,
+        trend: `${insights.length} pattern(s) detected (Ref: SDA comment.pdf / MAN ES / WinGD)`,
+        comment: insights.join('<br><br>')
+      });
+    }
   }
 
   const riskMap = ['OK','WATCH','WARN','ALERT'];
